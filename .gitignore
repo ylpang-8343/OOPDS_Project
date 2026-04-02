@@ -39,3 +39,14 @@
 
 # debug information files
 *.dwo
+
+# IDE files
+.idea/
+cmake-build-*/
+.vs/
+*.vcxproj.user
+*.vcxproj.filters
+*.sln
+Debug/
+Release/
+.vscode/
