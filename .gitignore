@@ -49,4 +49,7 @@ cmake-build-*/
 *.sln
 Debug/
 Release/
+
+# VM generated output
+output.txt
 .vscode/
