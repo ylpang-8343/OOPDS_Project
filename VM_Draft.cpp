@@ -477,112 +477,90 @@ public:
     }
 };
 
-class AddInstruction : public ArithmeticInstruction {
+class BinaryMathInstruction : public ArithmeticInstruction {
 private:
     int destination;
     int sourceMode;
     int sourceValue;
+    char operation;
 
 public:
-    AddInstruction(int dest, int mode, int value) {
+    BinaryMathInstruction(int dest, int mode, int value, char op) {
         destination = dest;
         sourceMode = mode;
         sourceValue = value;
+        operation = op;
     }
 
     void execute(CPU& cpu) {
+        int result = calculate(cpu);
+        cpu.setRegisterWithFlags(destination, result);
+    }
+
+    int calculate(CPU& cpu) {
         int source = sourceValue;
         if (sourceMode == 1) source = cpu.getRegister(sourceValue);
-        cpu.setRegisterWithFlags(destination, cpu.getRegister(destination) + source);
-    }
-};
-
-class SubInstruction : public ArithmeticInstruction {
-private:
-    int destination;
-    int sourceMode;
-    int sourceValue;
-
-public:
-    SubInstruction(int dest, int mode, int value) {
-        destination = dest;
-        sourceMode = mode;
-        sourceValue = value;
-    }
-
-    void execute(CPU& cpu) {
-        int source = sourceValue;
-        if (sourceMode == 1) source = cpu.getRegister(sourceValue);
-        cpu.setRegisterWithFlags(destination, cpu.getRegister(destination) - source);
-    }
-};
-
-class MulInstruction : public ArithmeticInstruction {
-private:
-    int destination;
-    int sourceMode;
-    int sourceValue;
-
-public:
-    MulInstruction(int dest, int mode, int value) {
-        destination = dest;
-        sourceMode = mode;
-        sourceValue = value;
-    }
-
-    void execute(CPU& cpu) {
-        int source = sourceValue;
-        if (sourceMode == 1) source = cpu.getRegister(sourceValue);
-        cpu.setRegisterWithFlags(destination, cpu.getRegister(destination) * source);
-    }
-};
-
-class DivInstruction : public ArithmeticInstruction {
-private:
-    int destination;
-    int sourceMode;
-    int sourceValue;
-
-public:
-    DivInstruction(int dest, int mode, int value) {
-        destination = dest;
-        sourceMode = mode;
-        sourceValue = value;
-    }
-
-    void execute(CPU& cpu) {
-        int source = sourceValue;
-        if (sourceMode == 1) source = cpu.getRegister(sourceValue);
+        if (operation == '+') return cpu.getRegister(destination) + source;
+        if (operation == '-') return cpu.getRegister(destination) - source;
+        if (operation == '*') return cpu.getRegister(destination) * source;
         if (source == 0) stopProgram("Math error: division by zero");
-        cpu.setRegisterWithFlags(destination, cpu.getRegister(destination) / source);
+        return cpu.getRegister(destination) / source;
     }
 };
 
-class IncInstruction : public ArithmeticInstruction {
-private:
-    int destination;
-
+class AddInstruction : public BinaryMathInstruction {
 public:
-    IncInstruction(int dest) {
-        destination = dest;
-    }
-
-    void execute(CPU& cpu) {
-        cpu.setRegisterWithFlags(destination, cpu.getRegister(destination) + 1);
+    AddInstruction(int dest, int mode, int value)
+        : BinaryMathInstruction(dest, mode, value, '+') {
     }
 };
 
-class DecInstruction : public ArithmeticInstruction {
+class SubInstruction : public BinaryMathInstruction {
+public:
+    SubInstruction(int dest, int mode, int value)
+        : BinaryMathInstruction(dest, mode, value, '-') {
+    }
+};
+
+class MulInstruction : public BinaryMathInstruction {
+public:
+    MulInstruction(int dest, int mode, int value)
+        : BinaryMathInstruction(dest, mode, value, '*') {
+    }
+};
+
+class DivInstruction : public BinaryMathInstruction {
+public:
+    DivInstruction(int dest, int mode, int value)
+        : BinaryMathInstruction(dest, mode, value, '/') {
+    }
+};
+
+class OneRegisterMathInstruction : public ArithmeticInstruction {
 private:
     int destination;
+    int change;
 
 public:
-    DecInstruction(int dest) {
+    OneRegisterMathInstruction(int dest, int amount) {
         destination = dest;
+        change = amount;
     }
 
     void execute(CPU& cpu) {
-        cpu.setRegisterWithFlags(destination, cpu.getRegister(destination) - 1);
+        cpu.setRegisterWithFlags(destination, cpu.getRegister(destination) + change);
+    }
+};
+
+class IncInstruction : public OneRegisterMathInstruction {
+public:
+    IncInstruction(int dest) : OneRegisterMathInstruction(dest, 1) {
+    }
+};
+
+class DecInstruction : public OneRegisterMathInstruction {
+public:
+    DecInstruction(int dest) : OneRegisterMathInstruction(dest, -1) {
     }
 };
 
@@ -700,70 +678,41 @@ public:
     }
 };
 
-class ShlInstruction : public ShiftInstruction {
+class BitMoveInstruction : public ShiftInstruction {
 private:
     int destination;
     int count;
+    char operation;
 
 public:
-    ShlInstruction(int dest, int moveCount) {
+    BitMoveInstruction(int dest, int moveCount, char op) {
         destination = dest;
         count = moveCount;
+        operation = op;
     }
 
     void execute(CPU& cpu) {
         int bits[8];
         decimalToBits(cpu.getRegister(destination), bits);
-        for (int i = 0; i < count; i++) shiftLeft(bits);
+        for (int i = 0; i < count; i++) moveOnce(bits);
         cpu.setRegisterWithFlags(destination, bitsToDecimal(bits));
     }
 
-    void shiftLeft(int bits[]) {
-        for (int i = 0; i < 7; i++) bits[i] = bits[i + 1];
-        bits[7] = 0;
-    }
-};
-
-class ShrInstruction : public ShiftInstruction {
-private:
-    int destination;
-    int count;
-
-public:
-    ShrInstruction(int dest, int moveCount) {
-        destination = dest;
-        count = moveCount;
-    }
-
-    void execute(CPU& cpu) {
-        int bits[8];
-        decimalToBits(cpu.getRegister(destination), bits);
-        for (int i = 0; i < count; i++) shiftRight(bits);
-        cpu.setRegisterWithFlags(destination, bitsToDecimal(bits));
+    void moveOnce(int bits[]) {
+        if (operation == 'L') shiftLeft(bits);
+        if (operation == 'R') shiftRight(bits);
+        if (operation == 'O') rotateLeft(bits);
+        if (operation == 'P') rotateRight(bits);
     }
 
     void shiftRight(int bits[]) {
         for (int i = 7; i > 0; i--) bits[i] = bits[i - 1];
         bits[0] = 0;
     }
-};
 
-class RolInstruction : public ShiftInstruction {
-private:
-    int destination;
-    int count;
-
-public:
-    RolInstruction(int dest, int moveCount) {
-        destination = dest;
-        count = moveCount;
-    }
-
-    void execute(CPU& cpu) {
-        int bits[8];
-        decimalToBits(cpu.getRegister(destination), bits);
-        for (int i = 0; i < count; i++) rotateLeft(bits);
-        cpu.setRegisterWithFlags(destination, bitsToDecimal(bits));
+    void shiftLeft(int bits[]) {
+        for (int i = 0; i < 7; i++) bits[i] = bits[i + 1];
+        bits[7] = 0;
     }
 
     void rotateLeft(int bits[]) {
@@ -771,30 +720,35 @@ public:
         for (int i = 0; i < 7; i++) bits[i] = bits[i + 1];
         bits[7] = first;
     }
-};
-
-class RorInstruction : public ShiftInstruction {
-private:
-    int destination;
-    int count;
-
-public:
-    RorInstruction(int dest, int moveCount) {
-        destination = dest;
-        count = moveCount;
-    }
-
-    void execute(CPU& cpu) {
-        int bits[8];
-        decimalToBits(cpu.getRegister(destination), bits);
-        for (int i = 0; i < count; i++) rotateRight(bits);
-        cpu.setRegisterWithFlags(destination, bitsToDecimal(bits));
-    }
 
     void rotateRight(int bits[]) {
         int last = bits[7];
         for (int i = 7; i > 0; i--) bits[i] = bits[i - 1];
         bits[0] = last;
+    }
+};
+
+class ShlInstruction : public BitMoveInstruction {
+public:
+    ShlInstruction(int dest, int count) : BitMoveInstruction(dest, count, 'L') {
+    }
+};
+
+class ShrInstruction : public BitMoveInstruction {
+public:
+    ShrInstruction(int dest, int count) : BitMoveInstruction(dest, count, 'R') {
+    }
+};
+
+class RolInstruction : public BitMoveInstruction {
+public:
+    RolInstruction(int dest, int count) : BitMoveInstruction(dest, count, 'O') {
+    }
+};
+
+class RorInstruction : public BitMoveInstruction {
+public:
+    RorInstruction(int dest, int count) : BitMoveInstruction(dest, count, 'P') {
     }
 };
 
