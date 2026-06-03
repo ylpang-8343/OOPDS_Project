@@ -109,10 +109,6 @@ public:
     bool isEmpty() const {
         return values.isEmpty();
     }
-
-    int size() const {
-        return values.size();
-    }
 };
 
 // Developer 1: Simple custom queue used when loading assembly lines.
@@ -169,10 +165,6 @@ public:
     bool isEmpty() const {
         return count == 0;
     }
-
-    int size() const {
-        return count;
-    }
 };
 
 // Developer 2: Register stores one signed byte value.
@@ -217,8 +209,8 @@ public:
     void updateFromResult(int result) {
         overflowFlag = result > 127;
         underflowFlag = result < -128;
-        carryFlag = result > 255 || result < -256;
-        zeroFlag = result == 0;
+        carryFlag = result > 127 || result < -128;
+        zeroFlag = normalizeByte(result) == 0;
     }
 
     void resetFlag(string name) {
@@ -284,18 +276,14 @@ public:
         validateAddress(address);
         return static_cast<int>(cells[address]);
     }
-
-    int size() const {
-        return 64;
-    }
 };
 
 // Developer 3: CPU contains all virtual machine parts.
 class CPU {
 private:
     GeneralRegister registers[8];
-    signed char programCounter;
-    signed char stackIndex;
+    int programCounter;
+    int stackIndex;
     FlagRegister flags;
     Memory memory;
     MyStack<int> systemStack;
@@ -344,15 +332,15 @@ public:
     }
 
     int getPC() const {
-        return static_cast<int>(programCounter);
+        return programCounter;
     }
 
     void incrementPC() {
-        programCounter = static_cast<signed char>(normalizeByte(programCounter + 1));
+        programCounter++;
     }
 
     int getSI() const {
-        return static_cast<int>(stackIndex);
+        return stackIndex;
     }
 
     FlagRegister& getFlags() {
@@ -365,12 +353,13 @@ public:
 
     void pushRegister(int index) {
         systemStack.push(getRegister(index));
-        stackIndex = static_cast<signed char>(normalizeByte(stackIndex + 1));
+        stackIndex++;
     }
 
     void popToRegister(int index) {
+        if (systemStack.isEmpty()) stopProgram("System crash: stack underflow");
         setRegisterWithFlags(index, systemStack.pop());
-        stackIndex = static_cast<signed char>(normalizeByte(stackIndex - 1));
+        stackIndex--;
     }
 
     void dump(ostream& out) const {
