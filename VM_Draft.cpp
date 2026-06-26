@@ -88,13 +88,19 @@ public:
 };
 
 // Developer 1: Custom stack used by PUSH and POP instructions.
+// Stack is limited to 8 slots as per the VM architecture specification.
 template <class T>
 class MyStack {
 private:
     MyVector<T> values;
+    static const int MAX_SIZE = 8;
 
 public:
     void push(const T& value) {
+        if (values.size() >= MAX_SIZE) {
+            cerr << "System crash: stack overflow (max 8 slots)" << endl;
+            exit(1);
+        }
         values.pushBack(value);
     }
 
@@ -108,6 +114,15 @@ public:
 
     bool isEmpty() const {
         return values.isEmpty();
+    }
+
+    int size() const {
+        return values.size();
+    }
+
+    // Returns value at position idx (0 = bottom, size-1 = top).
+    T getAt(int idx) const {
+        return const_cast<MyVector<T>&>(values).get(idx);
     }
 };
 
@@ -206,11 +221,30 @@ public:
         resetAll();
     }
 
-    void updateFromResult(int result) {
+    // Used by arithmetic instructions (ADD, SUB, MUL, DIV, INC, DEC).
+    // Updates all four flags including CF.
+    void updateFromArithmetic(int result) {
         overflowFlag = result > 127;
         underflowFlag = result < -128;
         carryFlag = result > 127 || result < -128;
         zeroFlag = normalizeByte(result) == 0;
+    }
+
+    // Used by non-arithmetic instructions (MOV, LOAD, shift/rotate).
+    // Updates OF, UF, ZF only; CF is left unchanged per specification.
+    void updateFromResult(int result) {
+        overflowFlag = result > 127;
+        underflowFlag = result < -128;
+        zeroFlag = normalizeByte(result) == 0;
+    }
+
+    // Used by INPUT: checks the raw user-supplied value before normalization
+    // so that OF/UF are set correctly even when the value wraps.
+    void updateFromInput(int rawValue) {
+        overflowFlag  = rawValue > 127;
+        underflowFlag = rawValue < -128;
+        zeroFlag      = normalizeByte(rawValue) == 0;
+        // CF is not defined for INPUT by the specification.
     }
 
     void resetFlag(string name) {
@@ -324,6 +358,18 @@ public:
         setRegister(index, value);
     }
 
+    // Used by arithmetic instructions so CF is also updated.
+    void setRegisterArithmetic(int index, int value) {
+        flags.updateFromArithmetic(value);
+        setRegister(index, value);
+    }
+
+    // Used by INPUT: flags are set from the raw pre-normalisation value.
+    void setRegisterFromInput(int index, int rawValue) {
+        flags.updateFromInput(rawValue);
+        setRegister(index, rawValue);
+    }
+
     void validateRegister(int index) const {
         if (index < 0 || index > 7) {
             cerr << "Register error: invalid register" << endl;
@@ -366,6 +412,7 @@ public:
         out << "#Begin#" << endl;
         dumpRegisters(out);
         dumpFlags(out);
+        dumpStack(out);
         dumpMemory(out);
         out << "#End#" << endl;
     }
@@ -386,6 +433,23 @@ public:
         out << "#PC#";
         printPadded(out, getPC());
         out << "#" << endl;
+        out << "#SI#";
+        printPadded(out, getSI());
+        out << "#" << endl;
+    }
+
+    void dumpStack(ostream& out) const {
+        out << "#Stack#" << endl;
+        out << "#";
+        for (int i = 0; i < 8; i++) {
+            if (i < systemStack.size()) {
+                printPadded(out, systemStack.getAt(i));
+            } else {
+                out << "0000";
+            }
+            out << "#";
+        }
+        out << endl;
     }
 
     void dumpMemory(ostream& out) const {
@@ -483,7 +547,7 @@ public:
 
     void execute(CPU& cpu) {
         int result = calculate(cpu);
-        cpu.setRegisterWithFlags(destination, result);
+        cpu.setRegisterArithmetic(destination, result);
     }
 
     int calculate(CPU& cpu) {
@@ -537,7 +601,7 @@ public:
     }
 
     void execute(CPU& cpu) {
-        cpu.setRegisterWithFlags(destination, cpu.getRegister(destination) + change);
+        cpu.setRegisterArithmetic(destination, cpu.getRegister(destination) + change);
     }
 };
 
@@ -567,7 +631,10 @@ public:
         cout << "? ";
         cin >> inputText;
         if (!isNumberText(inputText)) stopProgram("Input error: number expected");
-        cpu.setRegisterWithFlags(destination, toNumber(inputText));
+        int rawValue = toNumber(inputText);
+        // Flags are set from rawValue BEFORE normalization so that
+        // e.g. an input of 200 correctly sets OF even though it wraps to -56.
+        cpu.setRegisterFromInput(destination, rawValue);
     }
 };
 
@@ -797,6 +864,16 @@ private:
         int count = 0;
         tokenize(line, parts, count);
         if (count == 0) stopProgram("Parse error: empty line");
+        // Spec requirement: if more than one instruction is found on a line,
+        // generate an error and exit. A second instruction would start with
+        // a known opcode in parts[3] or parts[4] after a 2-token instruction,
+        // or in parts[4] after a 3-token instruction. The simplest reliable
+        // check is: if token count exceeds the maximum any single instruction
+        // can have (3 tokens: opcode + 2 operands), reject the line.
+        if (count > 3) {
+            cerr << "Parse error: multiple instructions on one line: " << line << endl;
+            exit(1);
+        }
         return chooseInstruction(parts, count);
     }
 
@@ -922,12 +999,11 @@ private:
 };
 
 int normalizeByte(int value) {
-    while (value > 127) {
-        value -= 256;
-    }
-    while (value < -128) {
-        value += 256;
-    }
+    // Map any integer into the signed byte range [-128, 127] using modulo
+    // arithmetic, equivalent to C-style 8-bit two's complement wrapping.
+    value = value % 256;
+    if (value > 127)  value -= 256;
+    if (value < -128) value += 256;
     return value;
 }
 
